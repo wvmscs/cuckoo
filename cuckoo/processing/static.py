@@ -51,6 +51,46 @@ from elftools.elf.segments import NoteSegment
 
 log = logging.getLogger(__name__)
 
+### Changed by wvmscs (08/2019) - access to cert attributes could raise exceptions
+import sys
+class safeWrapper():
+    """ Read class attributes wo fail """
+    class _L():
+        def __init__( self, context, name, fn ):
+            self.name = name
+            self.context = context
+            self.exception = None
+            self.fn = fn
+        def __call__(self, *args, **kwargs):
+            try:
+                return self.fn(*args, **kwargs)
+            except AttributeError as e:
+                raise(e)
+            except Exception as e:
+                self.exception = sys.exc_info()
+                return self
+        def __repr__(self):
+            return "{}: {} '{}'".format(self.context.description, self.name, self.exception[1] if self.exception else "" ) 
+                    
+    def __init__(self, cert, description=""):
+        self.cert = cert
+        self.description = description
+    
+    def __getattr__(self, name):
+        try:
+            fn = getattr(self.cert, name)
+            if callable(fn ):
+                print("Callable")
+                return self._L(self, name, fn )
+            return fn
+        except AttributeError as e:
+            raise(e)
+        except Exception as e:
+            return "{}: {} '{}'".format(self.description, name, sys.exc_info()[1] )
+        #    self.exception = e
+        return None
+### wvmscs: end of addition
+
 # Partially taken from
 # http://malwarecookbook.googlecode.com/svn/trunk/3/8/pescanner.py
 
@@ -271,7 +311,7 @@ class PortableExecutable(object):
         ret = []
         p7 = M2Crypto.SMIME.PKCS7(pkcs7_obj)
         for cert in p7.get0_signers(M2Crypto.X509.X509_Stack()) or []:
-            subject = cert.get_subject()
+            subject = safeWrapper(cert.get_subject())
             ret.append({
                 "serial_number": "%032x" % cert.get_serial_number(),
                 "common_name": subject.CN,
